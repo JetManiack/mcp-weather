@@ -11,15 +11,14 @@ import (
 	"github.com/JetManiack/mcp-weather/internal/storage"
 )
 
-type historyListResponse struct {
+type toolCallListResponse struct {
 	Calls      []storage.ToolCall `json:"calls"`
 	NextCursor string             `json:"next_cursor,omitempty"`
-	// Actors maps actor IDs → display names so the UI can label rows without
-	// a separate lookup per agent.
+	// Actors maps actor IDs → names so the UI can label rows without a separate lookup.
 	Actors map[string]string `json:"actors"`
 }
 
-func listHistoryHandler(db *gorm.DB) http.HandlerFunc {
+func listToolCallsHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		limit := 0
@@ -31,8 +30,7 @@ func listHistoryHandler(db *gorm.DB) http.HandlerFunc {
 			}
 			limit = parsed
 		}
-		if status := q.Get("status"); status != "" &&
-			status != string(storage.ToolCallStatusOK) && status != string(storage.ToolCallStatusError) {
+		if status := q.Get("status"); status != "" && status != "ok" && status != "error" {
 			writeError(w, http.StatusBadRequest, errors.New(`status must be "ok" or "error"`))
 			return
 		}
@@ -62,11 +60,11 @@ func listHistoryHandler(db *gorm.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, historyListResponse{Calls: calls, NextCursor: next, Actors: names})
+		writeJSON(w, http.StatusOK, toolCallListResponse{Calls: calls, NextCursor: next, Actors: names})
 	}
 }
 
-func getHistoryEntryHandler(db *gorm.DB) http.HandlerFunc {
+func getToolCallHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		call, err := storage.GetToolCall(db, chi.URLParam(r, "id"))
 		if errors.Is(err, storage.ErrToolCallNotFound) {
@@ -86,7 +84,7 @@ func getHistoryEntryHandler(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
-func listHistoryToolsHandler(db *gorm.DB) http.HandlerFunc {
+func listToolCallToolsHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tools, err := storage.DistinctTools(db)
 		if err != nil {

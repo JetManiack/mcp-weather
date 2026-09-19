@@ -245,10 +245,10 @@ func resolveUnits(units string) (tempUnit, windUnit string) {
 	}
 	return "celsius", "kmh"
 }
+
 func safeSlice[T any](ss []T, i int) (zero T) {
 	if i < len(ss) {
 		return ss[i]
 	}
 	return
 }
-

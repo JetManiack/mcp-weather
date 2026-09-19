@@ -8,25 +8,26 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
 
+	"github.com/JetManiack/mcp-weather/internal/auth"
 	"github.com/JetManiack/mcp-weather/internal/storage"
 )
 
-type createAgentRequest struct {
-	DisplayName string `json:"display_name"`
+type createActorRequest struct {
+	Name string `json:"name"`
 }
 
-type issueTokenResponse struct {
+type issueCredentialResponse struct {
 	Token string `json:"token"`
 }
 
-type agentResponse struct {
+type actorResponse struct {
 	storage.Actor
 	HasActiveToken bool `json:"has_active_token"`
 }
 
-func listAgentsHandler(db *gorm.DB) http.HandlerFunc {
+func listActorsHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		agents, err := storage.ListAgents(db)
+		actors, err := storage.ListAgents(db)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
@@ -36,23 +37,23 @@ func listAgentsHandler(db *gorm.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		resp := make([]agentResponse, 0, len(agents))
-		for _, a := range agents {
-			resp = append(resp, agentResponse{Actor: a, HasActiveToken: active[a.ID]})
+		resp := make([]actorResponse, 0, len(actors))
+		for _, a := range actors {
+			resp = append(resp, actorResponse{Actor: a, HasActiveToken: active[a.ID]})
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
 
-func createAgentHandler(db *gorm.DB) http.HandlerFunc {
+func createActorHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req createAgentRequest
+		var req createActorRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, errors.New("body must be a JSON object with display_name"))
+			writeError(w, http.StatusBadRequest, errors.New("body must be a JSON object with name"))
 			return
 		}
-		agent, err := storage.CreateAgent(db, req.DisplayName)
-		if errors.Is(err, storage.ErrEmptyDisplayName) {
+		actor, err := storage.CreateAgent(db, req.Name)
+		if errors.Is(err, storage.ErrEmptyName) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -60,13 +61,13 @@ func createAgentHandler(db *gorm.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, agent)
+		writeJSON(w, http.StatusCreated, actor)
 	}
 }
 
-// deleteAgentHandler revokes every credential instead of deleting the Actor
+// deleteActorHandler revokes every credential instead of deleting the Actor
 // row, so history stays attributable.
-func deleteAgentHandler(db *gorm.DB) http.HandlerFunc {
+func deleteActorHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := storage.RevokeAllAgentCredentials(db, chi.URLParam(r, "id")); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -76,7 +77,7 @@ func deleteAgentHandler(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
-func listAgentTokensHandler(db *gorm.DB) http.HandlerFunc {
+func listCredentialsHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		creds, err := storage.ListAgentCredentials(db, chi.URLParam(r, "id"))
 		if err != nil {
@@ -87,20 +88,23 @@ func listAgentTokensHandler(db *gorm.DB) http.HandlerFunc {
 	}
 }
 
-func issueTokenHandler(db *gorm.DB) http.HandlerFunc {
+func issueCredentialHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := storage.IssueAgentToken(db, chi.URLParam(r, "id"))
+		token, err := auth.Issue(db, chi.URLParam(r, "id"), "")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, issueTokenResponse{Token: token})
+		writeJSON(w, http.StatusCreated, issueCredentialResponse{Token: token})
 	}
 }
 
-func revokeTokenHandler(db *gorm.DB) http.HandlerFunc {
+// revokeCredentialHandler revokes a credential by its own ID (DELETE /credentials/{id}).
+func revokeCredentialHandler(db *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := storage.RevokeAgentToken(db, chi.URLParam(r, "id"), chi.URLParam(r, "tokenID")); err != nil {
+		credID := chi.URLParam(r, "id")
+		// Revoke by credential ID regardless of actor — look up actor via the credential.
+		if err := storage.RevokeCredential(db, credID); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}

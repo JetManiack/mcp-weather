@@ -1,4 +1,4 @@
-package mcpserver
+package weather
 
 import (
 	"context"
@@ -31,16 +31,16 @@ type ForecastOutput struct {
 	Days            []DayOutput `json:"days" jsonschema:"daily forecast entries"`
 }
 
-func forecastHandler(deps Deps) mcp.ToolHandlerFor[ForecastInput, ForecastOutput] {
+func forecastHandler(client *Client) mcp.ToolHandlerFor[ForecastInput, ForecastOutput] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in ForecastInput) (*mcp.CallToolResult, ForecastOutput, error) {
 		if err := validateUnits(in.Units); err != nil {
 			return nil, ForecastOutput{}, err
 		}
-		loc, err := deps.Client.ResolveLocation(ctx, in.Location)
+		loc, err := client.ResolveLocation(ctx, in.Location)
 		if err != nil {
 			return nil, ForecastOutput{}, err
 		}
-		result, err := deps.Client.ForecastWeather(ctx, loc, in.Days, in.Units)
+		result, err := client.ForecastWeather(ctx, loc, in.Days, in.Units)
 		if err != nil {
 			return nil, ForecastOutput{}, err
 		}

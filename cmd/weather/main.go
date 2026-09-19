@@ -7,20 +7,71 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/urfave/cli/v3"
+	"gorm.io/gorm"
 
+	"github.com/JetManiack/mcp-weather/internal/frontend"
+	"github.com/JetManiack/mcp-weather/internal/health"
 	"github.com/JetManiack/mcp-weather/internal/mcpserver"
 	"github.com/JetManiack/mcp-weather/internal/restapi"
 	"github.com/JetManiack/mcp-weather/internal/storage"
-	"github.com/JetManiack/mcp-weather/internal/ui"
-	"github.com/JetManiack/mcp-weather/internal/weather"
+	weathertools "github.com/JetManiack/mcp-weather/internal/tools/weather"
 )
 
 // version is stamped at build time by the Makefile (-X main.version=...).
 var version = "dev"
+
+// atomicHandler lets the serve goroutine start immediately with a placeholder
+// and swap in the real handler once the database is ready.
+type atomicHandler struct {
+	h atomic.Pointer[http.Handler]
+}
+
+func (a *atomicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	(*a.h.Load()).ServeHTTP(w, r)
+}
+
+func (a *atomicHandler) swap(h http.Handler) {
+	a.h.Store(&h)
+}
+
+// placeholder replies 503 with a Retry-After hint while the server is warming up.
+func placeholder() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// /livez must always answer during warm-up so load-balancers don't drop us.
+		if r.URL.Path == "/livez" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "server starting", http.StatusServiceUnavailable)
+	})
+}
+
+type config struct {
+	listenAddr string
+	dbDSN      string
+	timeout    time.Duration
+	adminToken string
+}
+
+func buildHandler(db *gorm.DB, cfg config) http.Handler {
+	client := weathertools.NewClient(cfg.timeout)
+	r := chi.NewRouter()
+	r.Get("/livez", health.LivezHandler())
+	r.Get("/readyz", health.ReadyzHandler(db))
+	r.Mount("/mcp", mcpserver.Handler(db, []mcpserver.ToolRegistrar{
+		weathertools.NewRegistrar(client),
+	}))
+	r.Mount("/api", restapi.Handler(db, cfg.adminToken))
+	r.Mount("/", frontend.Handler())
+	return r
+}
 
 func newRootCommand() *cli.Command {
 	return &cli.Command{
@@ -43,61 +94,67 @@ func newRootCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "db-dsn",
 				Value:   "data/weather.db",
-				Usage:   "SQLite file path for agent tokens and audit log (use :memory: to disable persistence)",
+				Usage:   "database DSN (SQLite file path or postgres:// URL)",
 				Sources: cli.EnvVars("DB_DSN"),
 			},
 			&cli.StringFlag{
 				Name:    "admin-token",
-				Usage:   "bearer token required by the admin UI REST API; if empty the API is unauthenticated",
+				Usage:   "bearer token required by the admin UI REST API",
 				Sources: cli.EnvVars("ADMIN_TOKEN"),
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			db, err := storage.Open(cmd.String("db-dsn"))
-			if err != nil {
-				return err
+			cfg := config{
+				listenAddr: cmd.String("listen-addr"),
+				dbDSN:      cmd.String("db-dsn"),
+				timeout:    cmd.Duration("timeout"),
+				adminToken: cmd.String("admin-token"),
 			}
-
-			deps := mcpserver.Deps{
-				Client:  weather.NewClient(cmd.Duration("timeout")),
-				DB:      db,
-				Version: version,
+			if cfg.adminToken == "" {
+				return errors.New("--admin-token / ADMIN_TOKEN is required; set a strong random token to protect the admin API")
 			}
-			return serve(ctx, cmd.String("listen-addr"), deps, cmd.String("admin-token"))
+			return run(ctx, cfg)
 		},
 	}
 }
 
-func serve(ctx context.Context, addr string, deps mcpserver.Deps, adminToken string) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.Handle("/mcp", mcpserver.NewHTTPHandler(deps))
-	mux.Handle("/api/", http.StripPrefix("/api", restapi.NewHandler(deps.DB, adminToken)))
-	mux.Handle("/static/", ui.NewHandler())
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		http.Redirect(w, r, "/static/index.html", http.StatusFound)
-	})
+// run starts the HTTP server immediately with a placeholder handler, then
+// connects to the database and atomically swaps in the real handler.
+func run(ctx context.Context, cfg config) error {
+	ah := &atomicHandler{}
+	ph := placeholder()
+	ah.swap(ph)
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
+		Addr:              cfg.listenAddr,
+		Handler:           ah,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// WriteTimeout must exceed the API call timeout so in-flight tool
-		// responses are not cut off by the transport before delivery.
+		// WriteTimeout is intentionally generous so MCP streaming responses
+		// are not cut by the transport before delivery completes.
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
 	go func() {
-		slog.Info("starting server", "addr", addr, "version", version)
+		slog.Info("starting server", "addr", cfg.listenAddr, "version", version)
 		serveErr <- srv.ListenAndServe()
 	}()
+
+	// Open DB (with implicit retry via GORM + busy_timeout for SQLite).
+	db, err := storage.Open(cfg.dbDSN)
+	if err != nil {
+		// Shut down the server we just started before returning the error.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		return err
+	}
+
+	// Swap in the real handler now that the DB is ready.
+	ah.swap(buildHandler(db, cfg))
+	slog.Info("server ready", "addr", cfg.listenAddr)
 
 	select {
 	case <-ctx.Done():

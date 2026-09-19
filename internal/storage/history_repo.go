@@ -21,19 +21,19 @@ const (
 type HistoryFilter struct {
 	ActorID string
 	Tool    string
-	Status  string
+	Status  string // "ok" or "error"; empty means all
 	Limit   int
 	Cursor  string
 }
 
-// RecordToolCall persists one tool invocation, filling in ID and CreatedAt
+// RecordToolCall persists one tool invocation, filling in ID and CalledAt
 // when the caller left them unset.
 func RecordToolCall(db *gorm.DB, call *ToolCall) error {
 	if call.ID == "" {
 		call.ID = uuid.NewString()
 	}
-	if call.CreatedAt.IsZero() {
-		call.CreatedAt = time.Now()
+	if call.CalledAt.IsZero() {
+		call.CalledAt = time.Now()
 	}
 	return db.Create(call).Error
 }
@@ -55,7 +55,7 @@ func ListToolCalls(db *gorm.DB, f HistoryFilter) ([]ToolCall, string, error) {
 		q = q.Where("tool = ?", f.Tool)
 	}
 	if f.Status != "" {
-		q = q.Where("status = ?", f.Status)
+		q = q.Where("is_error = ?", f.Status == "error")
 	}
 	if f.Cursor != "" {
 		var after ToolCall
@@ -66,11 +66,11 @@ func ListToolCalls(db *gorm.DB, f HistoryFilter) ([]ToolCall, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		q = q.Where("(created_at < ?) OR (created_at = ? AND id < ?)", after.CreatedAt, after.CreatedAt, after.ID)
+		q = q.Where("(called_at < ?) OR (called_at = ? AND id < ?)", after.CalledAt, after.CalledAt, after.ID)
 	}
 
 	calls := []ToolCall{}
-	if err := q.Order("created_at DESC, id DESC").Limit(limit).Find(&calls).Error; err != nil {
+	if err := q.Order("called_at DESC, id DESC").Limit(limit).Find(&calls).Error; err != nil {
 		return nil, "", err
 	}
 	next := ""

@@ -3,6 +3,7 @@
 package restapi
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -10,28 +11,34 @@ import (
 	"gorm.io/gorm"
 )
 
-// NewHandler builds the REST API router. If adminToken is non-empty every
-// route requires Authorization: Bearer <adminToken>.
-func NewHandler(db *gorm.DB, adminToken string) http.Handler {
+// Handler builds the REST API router. If adminToken is non-empty every
+// route requires Authorization: Bearer <adminToken> (constant-time check).
+// Optional domain functions may mount additional routes on the router.
+func Handler(db *gorm.DB, adminToken string, domain ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	if adminToken != "" {
 		r.Use(requireAdminToken(adminToken))
 	}
 
-	r.Route("/agents", func(r chi.Router) {
-		r.Get("/", listAgentsHandler(db))
-		r.Post("/", createAgentHandler(db))
-		r.Delete("/{id}", deleteAgentHandler(db))
-		r.Get("/{id}/tokens", listAgentTokensHandler(db))
-		r.Post("/{id}/tokens", issueTokenHandler(db))
-		r.Delete("/{id}/tokens/{tokenID}", revokeTokenHandler(db))
+	r.Route("/actors", func(r chi.Router) {
+		r.Get("/", listActorsHandler(db))
+		r.Post("/", createActorHandler(db))
+		r.Delete("/{id}", deleteActorHandler(db))
+		r.Get("/{id}/credentials", listCredentialsHandler(db))
+		r.Post("/{id}/credentials", issueCredentialHandler(db))
 	})
 
-	r.Route("/history", func(r chi.Router) {
-		r.Get("/", listHistoryHandler(db))
-		r.Get("/tools", listHistoryToolsHandler(db))
-		r.Get("/{id}", getHistoryEntryHandler(db))
+	r.Delete("/credentials/{id}", revokeCredentialHandler(db))
+
+	r.Route("/tool-calls", func(r chi.Router) {
+		r.Get("/", listToolCallsHandler(db))
+		r.Get("/tools", listToolCallToolsHandler(db))
+		r.Get("/{id}", getToolCallHandler(db))
 	})
+
+	for _, mount := range domain {
+		mount(r)
+	}
 
 	return r
 }
@@ -40,7 +47,7 @@ func requireAdminToken(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if !ok || got != token {
+			if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="weather-admin"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

@@ -1,7 +1,8 @@
-package mcpserver
+package weather
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -27,16 +28,23 @@ type CurrentOutput struct {
 	Weather         string  `json:"weather" jsonschema:"human-readable weather description"`
 }
 
-func currentWeatherHandler(deps Deps) mcp.ToolHandlerFor[CurrentInput, CurrentOutput] {
+func validateUnits(units string) error {
+	if units != "" && units != "metric" && units != "imperial" {
+		return fmt.Errorf("units must be \"metric\" or \"imperial\", got %q", units)
+	}
+	return nil
+}
+
+func currentWeatherHandler(client *Client) mcp.ToolHandlerFor[CurrentInput, CurrentOutput] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in CurrentInput) (*mcp.CallToolResult, CurrentOutput, error) {
 		if err := validateUnits(in.Units); err != nil {
 			return nil, CurrentOutput{}, err
 		}
-		loc, err := deps.Client.ResolveLocation(ctx, in.Location)
+		loc, err := client.ResolveLocation(ctx, in.Location)
 		if err != nil {
 			return nil, CurrentOutput{}, err
 		}
-		cond, err := deps.Client.CurrentWeather(ctx, loc, in.Units)
+		cond, err := client.CurrentWeather(ctx, loc, in.Units)
 		if err != nil {
 			return nil, CurrentOutput{}, err
 		}
