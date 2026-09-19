@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcp-weather</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e2e4ed;
+  --muted: #6b7280; --accent: #6366f1; --accent-dim: #312e81;
+  --ok: #22c55e; --err: #ef4444; --warn: #f59e0b;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+}
+body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+header {
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: .75rem 1.5rem; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+header h1 { font-size: .95rem; color: var(--accent); letter-spacing: .05em; }
+nav { display: flex; gap: .25rem; }
+nav button {
+  background: none; border: 1px solid transparent; color: var(--muted);
+  padding: .3rem .8rem; border-radius: .375rem; cursor: pointer; font: inherit; font-size: .85rem;
+}
+nav button:hover { color: var(--text); }
+nav button.active { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-dim); }
+
+main { padding: 1.5rem; max-width: 960px; }
+
+section { display: none; }
+section.visible { display: block; }
+
+.toolbar {
+  display: flex; gap: .5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;
+}
+input, select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: .35rem .7rem; border-radius: .375rem; font: inherit; font-size: .85rem; outline: none;
+}
+input:focus, select:focus { border-color: var(--accent); }
+input { min-width: 220px; }
+button {
+  background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
+  padding: .35rem .9rem; border-radius: .375rem; cursor: pointer; font: inherit; font-size: .85rem;
+}
+button:hover { background: var(--accent); color: #fff; }
+button.ghost { background: none; border-color: var(--border); color: var(--muted); }
+button.ghost:hover { border-color: var(--text); color: var(--text); }
+button.danger { border-color: var(--err); color: var(--err); background: none; }
+button.danger:hover { background: var(--err); color: #fff; }
+
+.agent-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: .5rem; margin-bottom: .75rem; overflow: hidden;
+}
+.agent-header {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .6rem 1rem; border-bottom: 1px solid var(--border);
+}
+.agent-name { font-size: .9rem; flex: 1; }
+.badge {
+  font-size: .72rem; padding: .1rem .5rem; border-radius: 999px;
+  border: 1px solid; color: var(--ok); border-color: var(--ok); background: rgba(34,197,94,.08);
+}
+.badge.inactive { color: var(--muted); border-color: var(--border); background: none; }
+.agent-body { padding: .75rem 1rem; }
+.token-row {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .3rem 0; border-bottom: 1px solid var(--border); font-size: .8rem;
+}
+.token-row:last-child { border-bottom: none; }
+.token-id { color: var(--muted); flex: 1; font-size: .75rem; }
+.token-meta { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.revoked { color: var(--err); }
+
+.call-row {
+  display: flex; align-items: flex-start; gap: .75rem;
+  padding: .6rem 0; border-bottom: 1px solid var(--border); font-size: .82rem;
+}
+.call-row:last-child { border-bottom: none; }
+.call-status { font-size: .7rem; padding: .1rem .4rem; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.call-status.ok { color: var(--ok); border-color: var(--ok); }
+.call-status.error { color: var(--err); border-color: var(--err); }
+.call-body { flex: 1; min-width: 0; }
+.call-meta { color: var(--muted); font-size: .75rem; margin-top: .2rem; }
+.call-preview {
+  color: var(--muted); font-size: .75rem; margin-top: .3rem;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 4rem; overflow: hidden;
+}
+.call-time { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.call-ms { color: var(--muted); font-size: .72rem; }
+
+#load-more { margin-top: 1rem; }
+.empty { color: var(--muted); font-size: .85rem; padding: 1rem 0; }
+
+.token-reveal {
+  background: var(--surface); border: 1px solid var(--warn);
+  border-radius: .375rem; padding: .75rem 1rem; margin: .5rem 0;
+  font-size: .8rem;
+}
+.token-reveal code {
+  display: block; word-break: break-all; color: var(--warn);
+  margin: .4rem 0; font-size: .85rem;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>mcp-weather</h1>
+  <nav>
+    <button id="tab-agents" class="active" onclick="showTab('agents')">Agents</button>
+    <button id="tab-audit" onclick="showTab('audit')">Audit</button>
+  </nav>
+</header>
+
+<main>
+  <section id="agents" class="visible">
+    <div class="toolbar">
+      <input id="new-name" placeholder="Agent name" />
+      <button onclick="createAgent()">+ Create agent</button>
+    </div>
+    <div id="agents-list"></div>
+  </section>
+
+  <section id="audit">
+    <div class="toolbar">
+      <select id="f-agent"><option value="">All agents</option></select>
+      <select id="f-tool"><option value="">All tools</option></select>
+      <select id="f-status">
+        <option value="">All statuses</option>
+        <option value="ok">OK</option>
+        <option value="error">Error</option>
+      </select>
+      <button onclick="resetHistory()">Filter</button>
+    </div>
+    <div id="history-list"></div>
+    <button id="load-more" class="ghost" style="display:none" onclick="loadHistory()">Load more</button>
+  </section>
+</main>
+
+<script>
+const ADMIN_TOKEN = localStorage.getItem('admin_token') || '';
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...opts.headers };
+  if (ADMIN_TOKEN) headers['Authorization'] = 'Bearer ' + ADMIN_TOKEN;
+  const r = await fetch('/api' + path, { ...opts, headers });
+  if (r.status === 401) {
+    const token = prompt('Admin token required:');
+    if (token) { localStorage.setItem('admin_token', token); location.reload(); }
+    throw new Error('unauthorized');
+  }
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(body.error || r.statusText);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+function showTab(name) {
+  document.querySelectorAll('section').forEach(s => s.classList.remove('visible'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(name).classList.add('visible');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'audit') initAudit();
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────────
+
+async function loadAgents() {
+  const agents = await api('/agents');
+  const el = document.getElementById('agents-list');
+  if (!agents.length) { el.innerHTML = '<div class="empty">No agents yet.</div>'; return; }
+  el.innerHTML = agents.map(a => `
+    <div class="agent-card" id="agent-${a.id}">
+      <div class="agent-header">
+        <span class="agent-name">${esc(a.display_name)}</span>
+        <span class="badge ${a.has_active_token ? '' : 'inactive'}">${a.has_active_token ? 'active' : 'no token'}</span>
+        <button class="ghost" style="font-size:.75rem" onclick="issueToken('${a.id}','${esc(a.display_name)}')">Issue token</button>
+        <button class="danger" style="font-size:.75rem" onclick="deleteAgent('${a.id}','${esc(a.display_name)}')">Revoke all</button>
+      </div>
+      <div class="agent-body" id="tokens-${a.id}">
+        <div class="empty" style="font-size:.78rem">Loading tokens…</div>
+      </div>
+    </div>`).join('');
+  agents.forEach(a => loadTokens(a.id));
+}
+
+async function loadTokens(agentId) {
+  const creds = await api(`/agents/${agentId}/tokens`);
+  const el = document.getElementById(`tokens-${agentId}`);
+  if (!creds.length) { el.innerHTML = '<div class="empty" style="font-size:.78rem">No tokens.</div>'; return; }
+  el.innerHTML = creds.map(c => `
+    <div class="token-row" id="cred-${c.id}">
+      <span class="token-id">${c.id.slice(0,8)}…</span>
+      <span class="token-meta">issued ${reltime(c.created_at)}</span>
+      ${c.revoked_at
+        ? `<span class="revoked token-meta">revoked ${reltime(c.revoked_at)}</span>`
+        : `<span class="token-meta">${c.last_used_at ? 'last used ' + reltime(c.last_used_at) : 'never used'}</span>
+           <button class="danger" style="font-size:.72rem;padding:.1rem .5rem" onclick="revokeToken('${agentId}','${c.id}')">Revoke</button>`}
+    </div>`).join('');
+}
+
+async function createAgent() {
+  const name = document.getElementById('new-name').value.trim();
+  if (!name) return;
+  await api('/agents', { method: 'POST', body: JSON.stringify({ display_name: name }) });
+  document.getElementById('new-name').value = '';
+  loadAgents();
+}
+
+async function issueToken(agentId, name) {
+  const resp = await api(`/agents/${agentId}/tokens`, { method: 'POST' });
+  // Show token once — it won't be retrievable again.
+  const card = document.getElementById(`agent-${agentId}`);
+  const existing = card.querySelector('.token-reveal');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.className = 'token-reveal';
+  div.innerHTML = `<strong>New token for ${esc(name)} — copy it now, it won't be shown again:</strong>
+    <code>${esc(resp.token)}</code>
+    <button class="ghost" style="font-size:.75rem" onclick="navigator.clipboard.writeText('${esc(resp.token)}');this.textContent='Copied!'">Copy</button>`;
+  card.querySelector('.agent-header').after(div);
+  loadAgents();
+}
+
+async function revokeToken(agentId, credId) {
+  await api(`/agents/${agentId}/tokens/${credId}`, { method: 'DELETE' });
+  loadAgents();
+}
+
+async function deleteAgent(agentId, name) {
+  if (!confirm(`Revoke all tokens for "${name}"? History is preserved.`)) return;
+  await api(`/agents/${agentId}`, { method: 'DELETE' });
+  loadAgents();
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+let historyCursor = '';
+
+async function initAudit() {
+  const [agents, tools] = await Promise.all([api('/agents'), api('/history/tools')]);
+  const agentSel = document.getElementById('f-agent');
+  agentSel.innerHTML = '<option value="">All agents</option>' +
+    agents.map(a => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('');
+  const toolSel = document.getElementById('f-tool');
+  toolSel.innerHTML = '<option value="">All tools</option>' +
+    tools.map(t => `<option value="${t}">${esc(t)}</option>`).join('');
+  resetHistory();
+}
+
+function resetHistory() {
+  historyCursor = '';
+  document.getElementById('history-list').innerHTML = '';
+  loadHistory();
+}
+
+async function loadHistory() {
+  const actor = document.getElementById('f-agent').value;
+  const tool = document.getElementById('f-tool').value;
+  const status = document.getElementById('f-status').value;
+  const params = new URLSearchParams();
+  if (actor) params.set('actor', actor);
+  if (tool) params.set('tool', tool);
+  if (status) params.set('status', status);
+  if (historyCursor) params.set('cursor', historyCursor);
+
+  const data = await api('/history?' + params);
+  const el = document.getElementById('history-list');
+
+  if (!data.calls.length && !historyCursor) {
+    el.innerHTML = '<div class="empty">No tool calls recorded yet.</div>';
+    document.getElementById('load-more').style.display = 'none';
+    return;
+  }
+
+  data.calls.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'call-row';
+    const preview = c.status === 'error'
+      ? (c.error_message || '')
+      : tryJSON(c.response_preview);
+    div.innerHTML = `
+      <span class="call-status ${c.status}">${c.status}</span>
+      <div class="call-body">
+        <strong style="font-size:.85rem">${esc(c.tool)}</strong>
+        <span class="call-meta">${esc(data.actors[c.actor_id] || c.actor_id)}</span>
+        <div class="call-meta">${esc(tryJSON(c.args))}</div>
+        ${preview ? `<div class="call-preview">${esc(preview)}</div>` : ''}
+        ${c.truncated ? '<span class="call-meta">(truncated)</span>' : ''}
+      </div>
+      <div style="text-align:right">
+        <div class="call-time">${reltime(c.created_at)}</div>
+        <div class="call-ms">${c.duration_ms}ms</div>
+      </div>`;
+    el.appendChild(div);
+  });
+
+  historyCursor = data.next_cursor || '';
+  document.getElementById('load-more').style.display = historyCursor ? '' : 'none';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function reltime(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff/3600)}h ago`;
+  return `${Math.round(diff/86400)}d ago`;
+}
+
+function tryJSON(s) {
+  try { return JSON.stringify(JSON.parse(s), null, 1); } catch { return s || ''; }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadAgents();
+</script>
+</body>
+</html>
