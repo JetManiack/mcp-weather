@@ -48,7 +48,7 @@ func Open(dsn string) (*gorm.DB, error) {
 		}
 	}
 
-	if err := db.AutoMigrate(&Actor{}, &AgentCredential{}, &ToolCall{}); err != nil {
+	if err := db.AutoMigrate(&Actor{}, &AgentCredential{}, &ToolCall{}, &UserIdentity{}, &Session{}); err != nil {
 		return nil, fmt.Errorf("automigrate: %w", err)
 	}
 	return db, nil

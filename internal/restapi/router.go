@@ -3,32 +3,22 @@
 package restapi
 
 import (
-	"crypto/subtle"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gorm.io/gorm"
+
+	"github.com/JetManiack/mcp-weather/internal/humanauth"
 )
 
-// Handler builds the REST API router. If adminToken is non-empty every
-// route requires Authorization: Bearer <adminToken> (constant-time check).
-// Optional domain functions may mount additional routes on the router.
-func Handler(db *gorm.DB, adminToken string, domain ...func(chi.Router)) http.Handler {
+// NewHandler builds the REST API router, requiring human authentication on
+// every route. Admin-only routes additionally check for role == "admin".
+func NewHandler(db *gorm.DB, provider humanauth.Provider) http.Handler {
 	r := chi.NewRouter()
-	if adminToken != "" {
-		r.Use(requireAdminToken(adminToken))
-	}
+	r.Use(humanauth.RequireHumanAuth(db, provider))
 
-	r.Route("/actors", func(r chi.Router) {
-		r.Get("/", listActorsHandler(db))
-		r.Post("/", createActorHandler(db))
-		r.Delete("/{id}", deleteActorHandler(db))
-		r.Get("/{id}/credentials", listCredentialsHandler(db))
-		r.Post("/{id}/credentials", issueCredentialHandler(db))
-	})
-
-	r.Delete("/credentials/{id}", revokeCredentialHandler(db))
+	// Any authenticated human can view tool-call history and their own profile.
+	r.Get("/me", meHandler())
 
 	r.Route("/tool-calls", func(r chi.Router) {
 		r.Get("/", listToolCallsHandler(db))
@@ -36,23 +26,18 @@ func Handler(db *gorm.DB, adminToken string, domain ...func(chi.Router)) http.Ha
 		r.Get("/{id}", getToolCallHandler(db))
 	})
 
-	for _, mount := range domain {
-		mount(r)
-	}
+	// Admin-only: actor and credential management.
+	r.Group(func(r chi.Router) {
+		r.Use(humanauth.RequireAdmin)
+		r.Route("/actors", func(r chi.Router) {
+			r.Get("/", listActorsHandler(db))
+			r.Post("/", createActorHandler(db))
+			r.Delete("/{id}", deleteActorHandler(db))
+			r.Get("/{id}/credentials", listCredentialsHandler(db))
+			r.Post("/{id}/credentials", issueCredentialHandler(db))
+		})
+		r.Delete("/credentials/{id}", revokeCredentialHandler(db))
+	})
 
 	return r
-}
-
-func requireAdminToken(token string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="weather-admin"`)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
 }

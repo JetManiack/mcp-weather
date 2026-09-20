@@ -66,8 +66,7 @@ jobs:
         run: |
           docker buildx build --load -t smoke-test:latest .
           docker run -d --name smoke-test -p 18080:8080 \
-            -e ADMIN_TOKEN=smoke-test-token \
-            smoke-test:latest
+            smoke-test:latest --auth-stub
           for i in $(seq 1 20); do
             curl -sf http://localhost:18080/livez >/dev/null && break
             sleep 0.5
