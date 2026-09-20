@@ -66,6 +66,9 @@ func (rec Recorder) record(ctx context.Context, tool string, in, out any, callEr
 	}
 	if callErr != nil {
 		call.IsError = true
+		call.OutputJSON = marshalForHistory(struct {
+			Error string `json:"error"`
+		}{Error: callErr.Error()})
 	} else {
 		encoded := marshalForHistory(out)
 		call.OutputSize = len(encoded)
