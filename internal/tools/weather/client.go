@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JetManiack/mcp-weather/internal/httpclient"
 )
 
 const (
@@ -24,7 +26,7 @@ type Client struct {
 
 // NewClient returns a Client with the given per-request timeout.
 func NewClient(timeout time.Duration) *Client {
-	return &Client{http: &http.Client{Timeout: timeout}}
+	return &Client{http: httpclient.New(timeout, 2)}
 }
 
 // Location is a resolved geographic point.

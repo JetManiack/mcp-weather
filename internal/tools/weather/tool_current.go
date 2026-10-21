@@ -13,19 +13,19 @@ type CurrentInput struct {
 }
 
 type CurrentOutput struct {
-	Location        string  `json:"location" jsonschema:"resolved location name"`
-	Country         string  `json:"country,omitempty" jsonschema:"country name"`
-	Time            string  `json:"time" jsonschema:"observation time in local time"`
-	Temperature     float64 `json:"temperature" jsonschema:"current temperature"`
-	FeelsLike       float64 `json:"feels_like" jsonschema:"apparent (feels-like) temperature"`
-	TemperatureUnit string  `json:"temperature_unit" jsonschema:"temperature unit symbol (e.g. °C)"`
-	HumidityPercent int     `json:"humidity_percent" jsonschema:"relative humidity in percent"`
-	PrecipitationMm float64 `json:"precipitation_mm" jsonschema:"precipitation in the past hour in millimetres"`
-	WindSpeed       float64 `json:"wind_speed" jsonschema:"wind speed"`
-	WindDirectionDeg int    `json:"wind_direction_deg" jsonschema:"wind direction in degrees (0=N, 90=E, 180=S, 270=W)"`
-	WindSpeedUnit   string  `json:"wind_speed_unit" jsonschema:"wind speed unit symbol (e.g. km/h)"`
-	WeatherCode     int     `json:"weather_code" jsonschema:"WMO weather interpretation code"`
-	Weather         string  `json:"weather" jsonschema:"human-readable weather description"`
+	Location         string  `json:"location" jsonschema:"resolved location name"`
+	Country          string  `json:"country,omitempty" jsonschema:"country name"`
+	Time             string  `json:"time" jsonschema:"observation time in local time"`
+	Temperature      float64 `json:"temperature" jsonschema:"current temperature"`
+	FeelsLike        float64 `json:"feels_like" jsonschema:"apparent (feels-like) temperature"`
+	TemperatureUnit  string  `json:"temperature_unit" jsonschema:"temperature unit symbol (e.g. °C)"`
+	HumidityPercent  int     `json:"humidity_percent" jsonschema:"relative humidity in percent"`
+	PrecipitationMm  float64 `json:"precipitation_mm" jsonschema:"precipitation in the past hour in millimetres"`
+	WindSpeed        float64 `json:"wind_speed" jsonschema:"wind speed"`
+	WindDirectionDeg int     `json:"wind_direction_deg" jsonschema:"wind direction in degrees (0=N, 90=E, 180=S, 270=W)"`
+	WindSpeedUnit    string  `json:"wind_speed_unit" jsonschema:"wind speed unit symbol (e.g. km/h)"`
+	WeatherCode      int     `json:"weather_code" jsonschema:"WMO weather interpretation code"`
+	Weather          string  `json:"weather" jsonschema:"human-readable weather description"`
 }
 
 func validateUnits(units string) error {

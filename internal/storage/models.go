@@ -19,9 +19,9 @@ type Actor struct {
 
 // UserIdentity links an Actor to its Keycloak subject and current role.
 type UserIdentity struct {
-	ActorID          string `gorm:"type:char(36);primaryKey" json:"actor_id"`
-	KeycloakSubject  string `gorm:"type:varchar(255);not null;uniqueIndex" json:"keycloak_subject"`
-	Role             string `gorm:"type:varchar(50);not null" json:"role"`
+	ActorID         string `gorm:"type:char(36);primaryKey" json:"actor_id"`
+	KeycloakSubject string `gorm:"type:varchar(255);not null;uniqueIndex" json:"keycloak_subject"`
+	Role            string `gorm:"type:varchar(50);not null" json:"role"`
 }
 
 // Session is a server-side browser session created after OIDC login.
